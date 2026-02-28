@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: finboard
+      POSTGRES_USER: finboard
+      POSTGRES_PASSWORD: finboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgres://finboard:finboard@db:5432/finboard
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SETTINGS_MODULE: finboard.settings
+      SECRET_KEY: dev-secret-key-not-for-production
+    depends_on:
+      - db
+      - redis
+
+  worker:
+    build: .
+    command: celery -A finboard worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgres://finboard:finboard@db:5432/finboard
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SETTINGS_MODULE: finboard.settings
+      SECRET_KEY: dev-secret-key-not-for-production
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  pgdata:

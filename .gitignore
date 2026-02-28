@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+.venv
+venv/
+*.sqlite3
+.DS_Store
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# DO NOT commit this to the candidate repo
+HIRING_MANAGER_GUIDE.md

@@ -1,0 +1,78 @@
+{
+  "info": {
+    "name": "Finboard Orders API",
+    "_postman_id": "finboard-orders-v1",
+    "description": "Collection for the Finboard orders service. Base URL: http://localhost:8000\n\nTest credentials:\n  alice@acme.com / password123\n  bob@widgets.io / password123\n  admin@finboard.io / admin123",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (get session cookie)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"alice@acme.com\", \"password\": \"password123\"}"
+            },
+            "url": {"raw": "http://localhost:8000/admin/login/", "host": ["localhost"], "port": "8000", "path": ["admin", "login", ""]}
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "List my orders",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8000/api/orders/", "host": ["localhost"], "port": "8000", "path": ["api", "orders", ""]}
+          }
+        },
+        {
+          "name": "Create order",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"product_id\": 1, \"quantity\": 2, \"currency\": \"USD\"}"
+            },
+            "url": {"raw": "http://localhost:8000/api/orders/", "host": ["localhost"], "port": "8000", "path": ["api", "orders", ""]}
+          }
+        },
+        {
+          "name": "Get order detail",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8000/api/orders/:order_id/", "host": ["localhost"], "port": "8000", "path": ["api", "orders", ":order_id", ""], "variable": [{"key": "order_id", "value": ""}]}
+          }
+        },
+        {
+          "name": "Order summary (dashboard)",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "http://localhost:8000/api/orders/summary/", "host": ["localhost"], "port": "8000", "path": ["api", "orders", "summary", ""]}
+          }
+        },
+        {
+          "name": "[INTERNAL] Lookup any order by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://localhost:8000/api/internal/orders/?order_id=",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": ["api", "internal", "orders", ""],
+              "query": [{"key": "order_id", "value": ""}]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

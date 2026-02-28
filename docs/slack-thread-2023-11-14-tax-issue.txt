@@ -1,0 +1,66 @@
+# #eng-backend — Slack thread export
+# Date: 2023-11-14
+# Exported by: ops-bot
+
+---
+
+**Marco (Staff Eng)** [9:02 AM]
+heads up team — we just got a complaint from BigCorp that their November invoice
+was wrong. they're on enterprise tier and the order total doesn't match what
+their finance team expected.
+
+---
+
+**Priya (Backend)** [9:08 AM]
+Looking into it. Is it the discount or the tax?
+
+---
+
+**Marco** [9:11 AM]
+Tax. They're based in Texas. We charged them 8% (US "average") but Texas
+state sales tax is 6.25% and SaaS is actually exempt from TX sales tax for
+B2B. We over-collected.
+
+---
+
+**Priya** [9:15 AM]
+Yeah so the TAX_RATES dict in services.py is still that placeholder from the
+November 2022 hotfix. It was only ever meant to be temporary.
+FIN-441 is the ticket to replace it with TaxJar but that keeps getting
+pushed.
+
+---
+
+**Marco** [9:18 AM]
+Right. So for now we need to either:
+a) manually credit BigCorp the difference, or
+b) just zero out tax for enterprise B2B customers until FIN-441 ships
+
+---
+
+**Priya** [9:21 AM]
+Going with (b) short-term. I'll add a comment to services.py and leave
+the ticket. The real fix needs a tax service integration, not a patch.
+
+---
+
+**Marco** [9:22 AM]
+👍 make sure the comment is obvious — last two devs who touched that file
+didn't know the rates were fake
+
+---
+
+**Priya** [9:24 AM]
+Done. Also flagging: the `create_order` function in services.py is way too
+long now. Every hotfix goes in there. We really need FIN-441 and FIN-389
+shipped together so we can clean it up properly.
+
+---
+
+**Sam (CTO)** [9:31 AM]
+FIN-389 is on the roadmap for Q1. Let's not let perfect be the enemy of good
+but the tax thing needs to be on the candidate's radar when they touch that code.
+
+---
+
+*[Thread closed]*
