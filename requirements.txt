@@ -9,3 +9,5 @@ pytest==7.4.4
 pytest-django==4.7.0
 pytest-cov==4.1.0
 Faker==22.0.0
+dj-database-url
+djangorestframework-simplejwt==5.3.1
