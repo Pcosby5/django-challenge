@@ -57,36 +57,78 @@ def _notify_fulfillment_team(order: Order):
     logger.info("Notifying fulfillment team for order %s", order.id)
 
 
-def create_order(user, product_id: int, quantity: int, currency: str = "USD", notes: str = "") -> Order:
+class OrderCreationService:
     """
-    Create a new order for a user.
+    Focused service for order creation flow.
 
-    This function handles: product lookup, inventory check, pricing,
-    discount application, tax calculation, line item creation, order
-    persistence, and downstream notifications.
-
-    It has grown too large. FIN-441 tracks the refactor.
+    Keeps request-time behavior stable while isolating each step so
+    future hotfixes are less risky.
     """
-    with transaction.atomic():
-        # --- 1. Fetch and validate the product (locked for consistency) ---
+
+    def create(
+        self,
+        user,
+        product_id: int,
+        quantity: int,
+        currency: str = "USD",
+        notes: str = "",
+    ) -> Order:
+        with transaction.atomic():
+            product = self._get_locked_product(product_id=product_id)
+            self._validate_inventory(product=product, quantity=quantity)
+            subtotal, tax, total = self._compute_pricing(
+                user=user,
+                product=product,
+                quantity=quantity,
+                currency=currency,
+            )
+            order = self._persist_order(
+                user=user,
+                product=product,
+                quantity=quantity,
+                currency=currency,
+                notes=notes,
+                tax=tax,
+                total=total,
+            )
+            self._decrement_inventory(product=product, quantity=quantity)
+
+        self._notify(order)
+        logger.info("Order %s created successfully for user %s", order.id, user.email)
+        return order
+
+    def _get_locked_product(self, product_id: int) -> Product:
         try:
-            product = Product.objects.select_for_update().get(id=product_id, is_active=True)
-        except Product.DoesNotExist:
-            raise ValueError(f"Product {product_id} does not exist or is inactive.")
+            return Product.objects.select_for_update().get(id=product_id, is_active=True)
+        except Product.DoesNotExist as exc:
+            raise ValueError(
+                f"Product {product_id} does not exist or is inactive."
+            ) from exc
 
+    def _validate_inventory(self, product: Product, quantity: int):
         if product.inventory_count < quantity:
             raise ValueError(
                 f"Insufficient inventory for {product.sku}. "
                 f"Requested: {quantity}, available: {product.inventory_count}."
             )
 
-        # --- 2. Calculate pricing ---
+    def _compute_pricing(self, user, product: Product, quantity: int, currency: str):
         subtotal = product.unit_price * quantity
         subtotal = _apply_enterprise_discount(user, subtotal)
         tax = _calculate_tax(subtotal, currency)
         total = subtotal + tax
+        return subtotal, tax, total
 
-        # --- 3. Create order and line item atomically ---
+    def _persist_order(
+        self,
+        user,
+        product: Product,
+        quantity: int,
+        currency: str,
+        notes: str,
+        tax: Decimal,
+        total: Decimal,
+    ) -> Order:
         order = Order.objects.create(
             customer=user,
             status=Order.STATUS_PENDING,
@@ -95,29 +137,44 @@ def create_order(user, product_id: int, quantity: int, currency: str = "USD", no
             tax_amount=tax,
             notes=notes,
         )
-
         OrderLineItem.objects.create(
             order=order,
             product=product,
             quantity=quantity,
             unit_price_snapshot=product.unit_price,
         )
+        return order
 
-        # --- 4. Decrement inventory while still in the same transaction ---
+    def _decrement_inventory(self, product: Product, quantity: int):
         product.inventory_count -= quantity
         product.save(update_fields=["inventory_count"])
 
-    # --- 5. Notify ---
-    try:
-        _notify_customer(order)
-        _notify_fulfillment_team(order)
-    except Exception as exc:
-        # Swallowing notification errors intentionally — we don't want a
-        # Slack/SQS blip to roll back a successful order.
-        logger.error("Notification failed for order %s: %s", order.id, exc)
+    def _notify(self, order: Order):
+        try:
+            _notify_customer(order)
+            _notify_fulfillment_team(order)
+        except Exception as exc:
+            # Notification failures are intentionally non-blocking.
+            logger.error("Notification failed for order %s: %s", order.id, exc)
 
-    logger.info("Order %s created successfully for user %s", order.id, user.email)
-    return order
+
+def create_order(
+    user,
+    product_id: int,
+    quantity: int,
+    currency: str = "USD",
+    notes: str = "",
+) -> Order:
+    """
+    Public compatibility wrapper for order creation.
+    """
+    return OrderCreationService().create(
+        user=user,
+        product_id=product_id,
+        quantity=quantity,
+        currency=currency,
+        notes=notes,
+    )
 
 
 def get_orders_summary_for_user(user) -> dict:
