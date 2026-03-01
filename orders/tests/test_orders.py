@@ -114,6 +114,21 @@ class TestCreateOrder:
         product.refresh_from_db()
         assert product.inventory_count == initial - 3
 
+    @patch("orders.services.OrderLineItem.objects.create")
+    def test_rolls_back_order_when_line_item_create_fails(self, mock_line_item_create, db, user, product):
+        """
+        Regression for FIN-389: a line-item failure must not leave an orphan order.
+        """
+        mock_line_item_create.side_effect = Exception("line item write failed")
+        initial_inventory = product.inventory_count
+
+        with pytest.raises(Exception, match="line item write failed"):
+            create_order(user, product.id, quantity=2)
+
+        assert Order.objects.filter(customer=user).count() == 0
+        product.refresh_from_db()
+        assert product.inventory_count == initial_inventory
+
 
 class TestOrderSummary:
     def test_returns_counts_by_status(self, db, user, product):

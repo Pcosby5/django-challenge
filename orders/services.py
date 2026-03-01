@@ -9,9 +9,9 @@ It has grown organically as requirements were added. There is a Jira ticket
 import logging
 from decimal import Decimal
 
-from django.utils import timezone
+from django.db import transaction
 
-from .models import Order, OrderLineItem, PaymentAttempt, Product
+from .models import Order, OrderLineItem, Product
 
 logger = logging.getLogger(__name__)
 
@@ -66,50 +66,45 @@ def create_order(user, product_id: int, quantity: int, currency: str = "USD", no
 
     It has grown too large. FIN-441 tracks the refactor.
     """
-    # --- 1. Fetch and validate the product ---
-    try:
-        product = Product.objects.get(id=product_id, is_active=True)
-    except Product.DoesNotExist:
-        raise ValueError(f"Product {product_id} does not exist or is inactive.")
+    with transaction.atomic():
+        # --- 1. Fetch and validate the product (locked for consistency) ---
+        try:
+            product = Product.objects.select_for_update().get(id=product_id, is_active=True)
+        except Product.DoesNotExist:
+            raise ValueError(f"Product {product_id} does not exist or is inactive.")
 
-    if product.inventory_count < quantity:
-        raise ValueError(
-            f"Insufficient inventory for {product.sku}. "
-            f"Requested: {quantity}, available: {product.inventory_count}."
+        if product.inventory_count < quantity:
+            raise ValueError(
+                f"Insufficient inventory for {product.sku}. "
+                f"Requested: {quantity}, available: {product.inventory_count}."
+            )
+
+        # --- 2. Calculate pricing ---
+        subtotal = product.unit_price * quantity
+        subtotal = _apply_enterprise_discount(user, subtotal)
+        tax = _calculate_tax(subtotal, currency)
+        total = subtotal + tax
+
+        # --- 3. Create order and line item atomically ---
+        order = Order.objects.create(
+            customer=user,
+            status=Order.STATUS_PENDING,
+            total_amount=total,
+            currency=currency,
+            tax_amount=tax,
+            notes=notes,
         )
 
-    # --- 2. Calculate pricing ---
-    subtotal = product.unit_price * quantity
-    subtotal = _apply_enterprise_discount(user, subtotal)
-    tax = _calculate_tax(subtotal, currency)
-    total = subtotal + tax
+        OrderLineItem.objects.create(
+            order=order,
+            product=product,
+            quantity=quantity,
+            unit_price_snapshot=product.unit_price,
+        )
 
-    # --- 3. Create the order and line items ---
-    # Note: this is NOT wrapped in a transaction. If the line item save fails
-    # after the Order is created, we'll have an orphaned order record.
-    # This has happened twice in production (see FIN-389).
-    order = Order.objects.create(
-        customer=user,
-        status=Order.STATUS_PENDING,
-        total_amount=total,
-        currency=currency,
-        tax_amount=tax,
-        notes=notes,
-    )
-
-    OrderLineItem.objects.create(
-        order=order,
-        product=product,
-        quantity=quantity,
-        unit_price_snapshot=product.unit_price,
-    )
-
-    # --- 4. Decrement inventory ---
-    # This is a separate UPDATE, not atomic with the order creation above.
-    # Under concurrent load, two requests can both read inventory_count=1
-    # and both succeed, creating orders that exceed available stock.
-    product.inventory_count -= quantity
-    product.save()
+        # --- 4. Decrement inventory while still in the same transaction ---
+        product.inventory_count -= quantity
+        product.save(update_fields=["inventory_count"])
 
     # --- 5. Notify ---
     try:
