@@ -197,6 +197,31 @@ class TestOrderDetailView:
 
 
 # ---------------------------------------------------------------------------
+# Internal endpoint RBAC tests
+# ---------------------------------------------------------------------------
+
+class TestInternalOrderLookupView:
+    def test_regular_user_forbidden(self, client, db, user, pending_order):
+        client.force_login(user)
+        response = client.get(f"/api/internal/orders/?order_id={pending_order.id}")
+        assert response.status_code == 403
+
+    def test_staff_user_can_access(self, client, db, pending_order):
+        staff = User.objects.create_user(
+            username="ops",
+            email="ops@finboard.io",
+            password="password123",
+            billing_tier="pro",
+            is_staff=True,
+        )
+        client.force_login(staff)
+
+        response = client.get(f"/api/internal/orders/?order_id={pending_order.id}")
+        assert response.status_code == 200
+        assert response.json()["id"] == str(pending_order.id)
+
+
+# ---------------------------------------------------------------------------
 # Task tests
 # ---------------------------------------------------------------------------
 

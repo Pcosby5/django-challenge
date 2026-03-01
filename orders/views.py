@@ -111,7 +111,7 @@ class InternalOrderLookupView(APIView):
     checks, and to reinstate the IP allowlist at the infrastructure layer.
     """
 
-    permission_classes = [IsAuthenticated]  # BUG: should be IsAdminUser
+    permission_classes = [IsAdminUser]
 
     def get(self, request):
         order_id = request.query_params.get("order_id")
