@@ -201,6 +201,34 @@ class TestOrderDetailView:
 # ---------------------------------------------------------------------------
 
 class TestProcessPaymentTask:
+    @patch("orders.tasks.Order.objects.select_for_update")
+    def test_claim_order_uses_select_for_update(self, mock_select_for_update, db, pending_order):
+        """
+        Regression guard for FIN-401:
+        payment claim path must use row-level locking.
+        """
+        locked_qs = MagicMock()
+        locked_qs.get.return_value = pending_order
+        mock_select_for_update.return_value = locked_qs
+
+        from orders.tasks import _claim_order_for_processing
+        claimed = _claim_order_for_processing(str(pending_order.id))
+
+        assert claimed is not None
+        assert claimed.status == Order.STATUS_PROCESSING
+        mock_select_for_update.assert_called_once()
+        locked_qs.get.assert_called_once_with(id=str(pending_order.id))
+
+    @patch("orders.tasks._claim_order_for_processing")
+    @patch("orders.tasks.charge_payment_provider")
+    def test_skips_when_order_not_claimed(self, mock_charge, mock_claim, db, pending_order):
+        mock_claim.return_value = None
+
+        from orders.tasks import process_payment
+        process_payment(str(pending_order.id))
+
+        mock_charge.assert_not_called()
+
     @patch("orders.tasks.charge_payment_provider")
     def test_pays_pending_order(self, mock_charge, db, pending_order):
         mock_charge.return_value = {
@@ -229,3 +257,20 @@ class TestProcessPaymentTask:
         process_payment(str(pending_order.id))
 
         mock_charge.assert_not_called()
+
+    @patch("orders.tasks.charge_payment_provider")
+    def test_duplicate_invocation_charges_once(self, mock_charge, db, pending_order):
+        """
+        Sequential idempotency check: duplicate delivery should not
+        create duplicate provider charges after first success.
+        """
+        mock_charge.return_value = {
+            "provider_id": "ch_test_123",
+            "status": "succeeded",
+            "amount": "107.99",
+        }
+        from orders.tasks import process_payment
+        process_payment(str(pending_order.id))
+        process_payment(str(pending_order.id))
+
+        mock_charge.assert_called_once()

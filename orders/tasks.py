@@ -8,6 +8,7 @@ order creation flow. They run in a separate worker process.
 import logging
 
 from celery import shared_task
+from django.db import transaction
 from django.utils import timezone
 
 from .models import Order, PaymentAttempt
@@ -30,6 +31,30 @@ def charge_payment_provider(order: Order) -> dict:
     }
 
 
+def _claim_order_for_processing(order_id: str):
+    """
+    Atomically claim a pending order for payment processing.
+
+    Returns the order if this worker successfully claims it, else None.
+    """
+    with transaction.atomic():
+        try:
+            order = Order.objects.select_for_update().get(id=order_id)
+        except Order.DoesNotExist:
+            logger.error("process_payment called with unknown order_id=%s", order_id)
+            return None
+
+        if order.status != Order.STATUS_PENDING:
+            logger.info(
+                "Order %s is already %s, skipping payment.", order_id, order.status
+            )
+            return None
+
+        order.status = Order.STATUS_PROCESSING
+        order.save(update_fields=["status", "updated_at"])
+        return order
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_payment(self, order_id: str):
     """
@@ -46,21 +71,9 @@ def process_payment(self, order_id: str):
     In production this happened 3 times in January (see FIN-401).
     The fix requires select_for_update() inside an atomic transaction.
     """
-    try:
-        order = Order.objects.get(id=order_id)
-    except Order.DoesNotExist:
-        logger.error("process_payment called with unknown order_id=%s", order_id)
+    order = _claim_order_for_processing(order_id)
+    if order is None:
         return
-
-    if order.status != Order.STATUS_PENDING:
-        logger.info(
-            "Order %s is already %s, skipping payment.", order_id, order.status
-        )
-        return
-
-    # ← RACE CONDITION: another worker can pass the check above simultaneously
-    order.status = Order.STATUS_PROCESSING
-    order.save(update_fields=["status", "updated_at"])
 
     try:
         provider_response = charge_payment_provider(order)
