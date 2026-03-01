@@ -10,6 +10,7 @@ import logging
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Count
 
 from .models import Order, OrderLineItem, Product
 
@@ -125,13 +126,9 @@ def get_orders_summary_for_user(user) -> dict:
 
     This is called on every dashboard page load.
     """
-    orders = Order.objects.filter(customer=user)
-
-    # BUG (performance / hidden): This loads ALL order objects into memory
-    # just to count them by status. For a user with thousands of orders this
-    # is very slow. Should use .values('status').annotate(count=Count('id')).
-    summary = {}
-    for order in orders:
-        summary[order.status] = summary.get(order.status, 0) + 1
-
-    return summary
+    rows = (
+        Order.objects.filter(customer=user)
+        .values("status")
+        .annotate(count=Count("id"))
+    )
+    return {row["status"]: row["count"] for row in rows}
