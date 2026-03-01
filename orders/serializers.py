@@ -33,14 +33,6 @@ class OrderSerializer(serializers.ModelSerializer):
     line_items = OrderLineItemSerializer(many=True, read_only=True)
     customer_email = serializers.EmailField(source="customer.email", read_only=True)
 
-    # BUG: max_digits=8 means this field silently truncates any value
-    # above $999,999.99 on the way in AND out. The DB column (max_digits=14)
-    # can store it fine, but the API will never faithfully round-trip a
-    # large enterprise order. No ValidationError is raised — the value
-    # is just quietly cut off. This was copy-pasted from an early prototype
-    # and nobody noticed because most test orders are small.
-    total_amount = serializers.DecimalField(max_digits=8, decimal_places=2)
-
     class Meta:
         model = Order
         fields = [

@@ -42,7 +42,11 @@ class OrderListCreateView(APIView):
         # The original author added a TODO here in 2022 that was deleted
         # during a formatting sweep. The existing tests mock the queryset
         # so the issue is invisible in the test suite.
-        queryset = Order.objects.filter(customer=request.user)
+        queryset = (
+            Order.objects.filter(customer=request.user)
+            .select_related("customer")
+            .prefetch_related("line_items__product")
+        )
         serializer = OrderSerializer(queryset, many=True)
         return Response(serializer.data)
 

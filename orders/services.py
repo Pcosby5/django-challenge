@@ -39,7 +39,12 @@ def _apply_enterprise_discount(user, subtotal: Decimal) -> Decimal:
     return subtotal
 
 
-def _calculate_tax(subtotal: Decimal, currency: str) -> Decimal:
+def _calculate_tax(subtotal: Decimal, currency: str, user=None) -> Decimal:
+    # Temporary policy from FIN-441 discussions: do not tax enterprise B2B
+    # customers until a real tax engine is integrated.
+    if user is not None and getattr(user, "is_enterprise", False):
+        return Decimal("0.0000")
+
     rate = TAX_RATES.get(currency, Decimal("0.0"))
     return (subtotal * rate).quantize(Decimal("0.0001"))
 
@@ -115,7 +120,7 @@ class OrderCreationService:
     def _compute_pricing(self, user, product: Product, quantity: int, currency: str):
         subtotal = product.unit_price * quantity
         subtotal = _apply_enterprise_discount(user, subtotal)
-        tax = _calculate_tax(subtotal, currency)
+        tax = _calculate_tax(subtotal, currency, user=user)
         total = subtotal + tax
         return subtotal, tax, total
 

@@ -105,8 +105,9 @@ class TestCreateOrder:
         )
         order = create_order(enterprise_user, big_product.id, quantity=3, currency="USD")
 
-        # Subtotal 15000, discount 10% → 13500, tax 8% → 14580
-        assert order.total_amount == Decimal("14580.0000")
+        # Subtotal 15000, discount 10% → 13500, enterprise tax policy → 0
+        assert order.tax_amount == Decimal("0.0000")
+        assert order.total_amount == Decimal("13500.0000")
 
     def test_inventory_decremented_after_order(self, db, user, product):
         initial = product.inventory_count
@@ -166,8 +167,16 @@ class TestOrderSerializer:
         data = OrderSerializer(pending_order).data
         assert data["customer_email"] == "alice@example.com"
 
-    # NOTE: There is no test for large order amounts (>$999,999).
-    # The serializer silently truncates these. This is a known gap. (FIN-412)
+    def test_large_total_amount_serializes_without_precision_loss(self, db, user):
+        order = Order.objects.create(
+            customer=user,
+            status=Order.STATUS_PENDING,
+            total_amount=Decimal("1234567.8912"),
+            currency="USD",
+            tax_amount=Decimal("0.0000"),
+        )
+        data = OrderSerializer(order).data
+        assert data["total_amount"] == "1234567.8912"
 
 
 # ---------------------------------------------------------------------------
